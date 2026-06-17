@@ -59,7 +59,10 @@ class Store {
     return this.airspaces.delete(id);
   }
 
-  getAltitudeLayer(airspaceId: string, layerId: string): AltitudeLayer | undefined {
+  getAltitudeLayer(
+    airspaceId: string,
+    layerId: string,
+  ): AltitudeLayer | undefined {
     const airspace = this.airspaces.get(airspaceId);
     if (!airspace) return undefined;
     return airspace.altitudeLayers.find((l) => l.id === layerId);
@@ -131,7 +134,9 @@ class Store {
       if (filters.operationType)
         plans = plans.filter((p) => p.operationType === filters.operationType);
       if (filters.altitudeLayerId)
-        plans = plans.filter((p) => p.altitudeLayerId === filters.altitudeLayerId);
+        plans = plans.filter(
+          (p) => p.altitudeLayerId === filters.altitudeLayerId,
+        );
     }
     return plans;
   }
@@ -167,6 +172,27 @@ class Store {
     return this.getPlansInAirspaceDuring(airspaceId, slot, excludeId).filter(
       (p) => p.altitudeLayerId === altitudeLayerId,
     );
+  }
+
+  getLayerOccupancy(
+    airspaceId: string,
+    altitudeLayerId: string,
+    slot: TimeSlot,
+    excludeId?: string,
+  ): number {
+    const sStart = new Date(slot.start).getTime();
+    const sEnd = new Date(slot.end).getTime();
+
+    return Array.from(this.flightPlans.values()).filter((p) => {
+      if (p.airspaceId !== airspaceId) return false;
+      if (excludeId && p.id === excludeId) return false;
+      if (p.altitudeLayerId !== altitudeLayerId) return false;
+      if (p.status !== "APPROVED" && p.status !== "IN_EXECUTION") return false;
+
+      const pStart = new Date(p.timeSlot.start).getTime();
+      const pEnd = new Date(p.timeSlot.end).getTime();
+      return pStart < sEnd && sStart < pEnd;
+    }).length;
   }
 
   addTemporaryControl(
