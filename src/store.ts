@@ -186,25 +186,8 @@ class Store {
     return Array.from(this.flightPlans.values()).filter((p) => {
       if (p.airspaceId !== airspaceId) return false;
       if (excludeId && p.id === excludeId) return false;
-
-      const countsAsOccupied =
-        p.status === "APPROVED" ||
-        p.status === "IN_EXECUTION" ||
-        p.status === "PENDING_APPROVAL";
-
-      if (!countsAsOccupied) {
-        if (p.status === "RESCHEDULE_PENDING" && p.rescheduleInfo) {
-          const origLayer = p.rescheduleInfo.originalAltitudeLayerId;
-          if (origLayer !== altitudeLayerId) return false;
-          const origSlot = p.rescheduleInfo.originalTimeSlot;
-          const pStart = new Date(origSlot.start).getTime();
-          const pEnd = new Date(origSlot.end).getTime();
-          return pStart < sEnd && sStart < pEnd;
-        }
-        return false;
-      }
-
       if (p.altitudeLayerId !== altitudeLayerId) return false;
+      if (p.status !== "APPROVED" && p.status !== "IN_EXECUTION") return false;
 
       const pStart = new Date(p.timeSlot.start).getTime();
       const pEnd = new Date(p.timeSlot.end).getTime();
