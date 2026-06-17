@@ -59,7 +59,10 @@ class Store {
     return this.airspaces.delete(id);
   }
 
-  getAltitudeLayer(airspaceId: string, layerId: string): AltitudeLayer | undefined {
+  getAltitudeLayer(
+    airspaceId: string,
+    layerId: string,
+  ): AltitudeLayer | undefined {
     const airspace = this.airspaces.get(airspaceId);
     if (!airspace) return undefined;
     return airspace.altitudeLayers.find((l) => l.id === layerId);
@@ -131,7 +134,9 @@ class Store {
       if (filters.operationType)
         plans = plans.filter((p) => p.operationType === filters.operationType);
       if (filters.altitudeLayerId)
-        plans = plans.filter((p) => p.altitudeLayerId === filters.altitudeLayerId);
+        plans = plans.filter(
+          (p) => p.altitudeLayerId === filters.altitudeLayerId,
+        );
     }
     return plans;
   }
@@ -167,6 +172,25 @@ class Store {
     return this.getPlansInAirspaceDuring(airspaceId, slot, excludeId).filter(
       (p) => p.altitudeLayerId === altitudeLayerId,
     );
+  }
+
+  isPlanCountedForCapacity(plan: FlightPlan): boolean {
+    return plan.status === "APPROVED" || plan.status === "IN_EXECUTION";
+  }
+
+  getLayerUsedCapacity(
+    airspaceId: string,
+    altitudeLayerId: string,
+    slot: TimeSlot,
+    excludeId?: string,
+  ): number {
+    const plans = this.getPlansInLayerDuring(
+      airspaceId,
+      altitudeLayerId,
+      slot,
+      excludeId,
+    );
+    return plans.filter((p) => this.isPlanCountedForCapacity(p)).length;
   }
 
   addTemporaryControl(
