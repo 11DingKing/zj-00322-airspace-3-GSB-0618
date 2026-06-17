@@ -11,8 +11,6 @@ import {
 export const ACTIVE_OCCUPANCY_STATUSES: FlightPlanStatus[] = [
   "APPROVED",
   "IN_EXECUTION",
-  "PENDING_APPROVAL",
-  "RESCHEDULE_PENDING",
 ];
 
 function isOccupancyActive(status: FlightPlanStatus): boolean {
