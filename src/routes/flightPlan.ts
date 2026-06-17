@@ -10,8 +10,6 @@ import {
 const CAPACITY_OCCUPYING_STATUSES: FlightPlanStatus[] = [
   "APPROVED",
   "IN_EXECUTION",
-  "PENDING_APPROVAL",
-  "RESCHEDULE_PENDING",
 ];
 
 function isOccupyingCapacity(status: FlightPlanStatus): boolean {
