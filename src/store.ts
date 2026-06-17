@@ -8,6 +8,17 @@ import {
   AltitudeLayer,
 } from "./types";
 
+export const ACTIVE_OCCUPANCY_STATUSES: FlightPlanStatus[] = [
+  "APPROVED",
+  "IN_EXECUTION",
+  "PENDING_APPROVAL",
+  "RESCHEDULE_PENDING",
+];
+
+function isOccupancyActive(status: FlightPlanStatus): boolean {
+  return ACTIVE_OCCUPANCY_STATUSES.includes(status);
+}
+
 class Store {
   airspaces: Map<string, Airspace> = new Map();
   flightPlans: Map<string, FlightPlan> = new Map();
@@ -59,7 +70,10 @@ class Store {
     return this.airspaces.delete(id);
   }
 
-  getAltitudeLayer(airspaceId: string, layerId: string): AltitudeLayer | undefined {
+  getAltitudeLayer(
+    airspaceId: string,
+    layerId: string,
+  ): AltitudeLayer | undefined {
     const airspace = this.airspaces.get(airspaceId);
     if (!airspace) return undefined;
     return airspace.altitudeLayers.find((l) => l.id === layerId);
@@ -131,7 +145,9 @@ class Store {
       if (filters.operationType)
         plans = plans.filter((p) => p.operationType === filters.operationType);
       if (filters.altitudeLayerId)
-        plans = plans.filter((p) => p.altitudeLayerId === filters.altitudeLayerId);
+        plans = plans.filter(
+          (p) => p.altitudeLayerId === filters.altitudeLayerId,
+        );
     }
     return plans;
   }
@@ -167,6 +183,20 @@ class Store {
     return this.getPlansInAirspaceDuring(airspaceId, slot, excludeId).filter(
       (p) => p.altitudeLayerId === altitudeLayerId,
     );
+  }
+
+  getActiveOccupancyInLayerDuring(
+    airspaceId: string,
+    altitudeLayerId: string,
+    slot: TimeSlot,
+    excludeId?: string,
+  ): number {
+    return this.getPlansInLayerDuring(
+      airspaceId,
+      altitudeLayerId,
+      slot,
+      excludeId,
+    ).filter((p) => isOccupancyActive(p.status)).length;
   }
 
   addTemporaryControl(

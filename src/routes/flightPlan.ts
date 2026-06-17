@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { store } from "../store";
-import { FlightPlanStatus, OperationType, RescheduleStatus, TimeSlot } from "../types";
+import {
+  FlightPlanStatus,
+  OperationType,
+  RescheduleStatus,
+  TimeSlot,
+} from "../types";
 
 function isWithinAnySlot(slot: TimeSlot, availableSlots: TimeSlot[]): boolean {
   const sStart = new Date(slot.start).getTime();
@@ -87,19 +92,13 @@ export function submitFlightPlan(req: Request, res: Response) {
     return res.status(400).json({ error: "指定的高度层不存在" });
   }
 
-  const overlapping = store.getPlansInLayerDuring(
+  const activeCount = store.getActiveOccupancyInLayerDuring(
     airspaceId,
     targetLayerId,
     timeSlot,
   );
-  const activeOverlapping = overlapping.filter(
-    (p) =>
-      p.status === "APPROVED" ||
-      p.status === "IN_EXECUTION" ||
-      p.status === "PENDING_APPROVAL",
-  );
 
-  if (activeOverlapping.length >= targetLayer.capacity) {
+  if (activeCount >= targetLayer.capacity) {
     const queuedPlans = store
       .listFlightPlans({ airspaceId, altitudeLayerId: targetLayerId })
       .filter((p) => p.status === "QUEUED");
@@ -169,24 +168,26 @@ function handleApproveReschedule(
   }
 
   if (isUnderTemporaryControl(plan.airspaceId, plan.timeSlot)) {
-    return res.status(400).json({ error: "新时段处于临时管制期，无法批准改期" });
+    return res
+      .status(400)
+      .json({ error: "新时段处于临时管制期，无法批准改期" });
   }
 
-  const targetLayer = store.getAltitudeLayer(plan.airspaceId, plan.altitudeLayerId);
+  const targetLayer = store.getAltitudeLayer(
+    plan.airspaceId,
+    plan.altitudeLayerId,
+  );
   if (!targetLayer) {
     return res.status(400).json({ error: "关联的高度层不存在" });
   }
 
-  const overlapping = store.getPlansInLayerDuring(
+  const activeCount = store.getActiveOccupancyInLayerDuring(
     plan.airspaceId,
     plan.altitudeLayerId,
     plan.timeSlot,
     plan.id,
   );
-  const approvedOverlapping = overlapping.filter(
-    (p) => p.status === "APPROVED" || p.status === "IN_EXECUTION",
-  );
-  if (approvedOverlapping.length >= targetLayer.capacity) {
+  if (activeCount >= targetLayer.capacity) {
     return res
       .status(409)
       .json({ error: `高度层 ${targetLayer.name} 新时段已满，无法批准改期` });
@@ -231,24 +232,24 @@ export function approveFlightPlan(req: Request, res: Response) {
       .json({ error: "该计划时段处于临时管制期，无法批准" });
   }
 
-  const targetLayer = store.getAltitudeLayer(plan.airspaceId, plan.altitudeLayerId);
+  const targetLayer = store.getAltitudeLayer(
+    plan.airspaceId,
+    plan.altitudeLayerId,
+  );
   if (!targetLayer) {
     return res.status(400).json({ error: "关联的高度层不存在" });
   }
 
-  const overlapping = store.getPlansInLayerDuring(
+  const activeCount = store.getActiveOccupancyInLayerDuring(
     plan.airspaceId,
     plan.altitudeLayerId,
     plan.timeSlot,
     plan.id,
   );
-  const approvedOverlapping = overlapping.filter(
-    (p) => p.status === "APPROVED" || p.status === "IN_EXECUTION",
-  );
-  if (approvedOverlapping.length >= targetLayer.capacity) {
-    return res
-      .status(409)
-      .json({ error: `高度层 ${targetLayer.name} 此时段已满，无法批准，建议排队` });
+  if (activeCount >= targetLayer.capacity) {
+    return res.status(409).json({
+      error: `高度层 ${targetLayer.name} 此时段已满，无法批准，建议排队`,
+    });
   }
 
   const now = new Date().toISOString();
@@ -266,21 +267,62 @@ export function rejectFlightPlan(req: Request, res: Response) {
 
   if (plan.status === "RESCHEDULE_PENDING" && plan.rescheduleInfo) {
     const now = new Date().toISOString();
-    const updated = store.updateFlightPlan(plan.id, {
-      status: "APPROVED",
-      timeSlot: plan.rescheduleInfo.originalTimeSlot,
-      altitudeLayerId: plan.rescheduleInfo.originalAltitudeLayerId,
-      rescheduleInfo: {
-        ...plan.rescheduleInfo,
-        rescheduleStatus: "REJECTED" as RescheduleStatus,
-        rescheduleReason: reason || "改期未通过",
-        rescheduleProcessedAt: now,
-      },
-    });
-    return res.json({
-      ...updated,
-      message: "改期已拒绝，已恢复原时段",
-    });
+    const originalSlot = plan.rescheduleInfo.originalTimeSlot;
+    const originalLayerId = plan.rescheduleInfo.originalAltitudeLayerId;
+    const originalLayer = store.getAltitudeLayer(
+      plan.airspaceId,
+      originalLayerId,
+    );
+
+    const activeCount = store.getActiveOccupancyInLayerDuring(
+      plan.airspaceId,
+      originalLayerId,
+      originalSlot,
+      plan.id,
+    );
+
+    if (activeCount < (originalLayer?.capacity ?? 0)) {
+      const updated = store.updateFlightPlan(plan.id, {
+        status: "APPROVED",
+        timeSlot: originalSlot,
+        altitudeLayerId: originalLayerId,
+        rescheduleInfo: {
+          ...plan.rescheduleInfo,
+          rescheduleStatus: "REJECTED" as RescheduleStatus,
+          rescheduleReason: reason || "改期未通过",
+          rescheduleProcessedAt: now,
+        },
+      });
+      return res.json({
+        ...updated,
+        message: "改期已拒绝，已恢复原时段",
+      });
+    } else {
+      const queuedPlans = store
+        .listFlightPlans({
+          airspaceId: plan.airspaceId,
+          altitudeLayerId: originalLayerId,
+        })
+        .filter((p) => p.status === "QUEUED");
+      const queuePosition = queuedPlans.length + 1;
+
+      const updated = store.updateFlightPlan(plan.id, {
+        status: "QUEUED",
+        timeSlot: originalSlot,
+        altitudeLayerId: originalLayerId,
+        queuePosition,
+        rescheduleInfo: {
+          ...plan.rescheduleInfo,
+          rescheduleStatus: "REJECTED" as RescheduleStatus,
+          rescheduleReason: reason || "改期未通过",
+          rescheduleProcessedAt: now,
+        },
+      });
+      return res.json({
+        ...updated,
+        message: `改期已拒绝，原时段已满，已排入原时段队列，位置: ${queuePosition}`,
+      });
+    }
   }
 
   if (plan.status !== "PENDING_APPROVAL" && plan.status !== "QUEUED") {
@@ -316,7 +358,9 @@ export function requestReschedule(req: Request, res: Response) {
   }
 
   if (isUnderTemporaryControl(plan.airspaceId, timeSlot)) {
-    return res.status(400).json({ error: "新时段处于临时管制期，无法申请改期" });
+    return res
+      .status(400)
+      .json({ error: "新时段处于临时管制期，无法申请改期" });
   }
 
   let targetLayerId = altitudeLayerId || plan.altitudeLayerId;
@@ -325,21 +369,14 @@ export function requestReschedule(req: Request, res: Response) {
     return res.status(400).json({ error: "指定的高度层不存在" });
   }
 
-  const overlapping = store.getPlansInLayerDuring(
+  const activeCount = store.getActiveOccupancyInLayerDuring(
     plan.airspaceId,
     targetLayerId,
     timeSlot,
     plan.id,
   );
-  const activeOverlapping = overlapping.filter(
-    (p) =>
-      p.status === "APPROVED" ||
-      p.status === "IN_EXECUTION" ||
-      p.status === "PENDING_APPROVAL" ||
-      p.status === "RESCHEDULE_PENDING",
-  );
 
-  if (activeOverlapping.length >= targetLayer.capacity) {
+  if (activeCount >= targetLayer.capacity) {
     return res
       .status(409)
       .json({ error: `高度层 ${targetLayer.name} 新时段已满，无法申请改期` });
@@ -416,15 +453,12 @@ export function promoteQueuedPlans(req: Request, res: Response) {
       .sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0));
 
     for (const qp of queuedPlans) {
-      const overlapping = store.getPlansInLayerDuring(
+      const activeCount = store.getActiveOccupancyInLayerDuring(
         airspaceId,
         layer.id,
         qp.timeSlot,
         qp.id,
       );
-      const activeCount = overlapping.filter(
-        (p) => p.status === "APPROVED" || p.status === "IN_EXECUTION",
-      ).length;
       if (activeCount < layer.capacity) {
         store.updateFlightPlan(qp.id, {
           status: "PENDING_APPROVAL",
