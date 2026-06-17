@@ -175,12 +175,7 @@ class Store {
   }
 
   isPlanCountedForCapacity(plan: FlightPlan): boolean {
-    return (
-      plan.status === "APPROVED" ||
-      plan.status === "IN_EXECUTION" ||
-      plan.status === "PENDING_APPROVAL" ||
-      plan.status === "RESCHEDULE_PENDING"
-    );
+    return plan.status === "APPROVED" || plan.status === "IN_EXECUTION";
   }
 
   getLayerUsedCapacity(
